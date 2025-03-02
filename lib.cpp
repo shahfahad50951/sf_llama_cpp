@@ -2,6 +2,7 @@
 #include <ostream>
 #include <iostream>
 #include <algorithm>
+#include <stdexcept>
 using namespace std;
 
 template <class tensorType>
@@ -23,11 +24,6 @@ class SFTensor{
             numElems *= shape[dim];
         }
 
-        // for(int i{0}; i < numDims; i++){
-        //     cout << numDims-i-1 << "th dimension shape: " << this->shape[i] << '\n';
-        //     cout << numDims-i-1 << "th dimension stride: " << this->stride[i] << '\n';
-        // }
-
         if (allocate){
             data = (tensorType*) new tensorType[numElems];
             isOwner = true;
@@ -35,7 +31,7 @@ class SFTensor{
         return;
     }
 
-    // Shallow Copy constructor
+    // Shallow copy constructor
     SFTensor(const SFTensor& tensor){
         this->shape = tensor.shape; this->stride = tensor.stride; this->offset = tensor.offset;
         this->data = tensor.data; this->isOwner = false; this->numDims = tensor.numDims;
@@ -44,7 +40,7 @@ class SFTensor{
     }
 
     SFTensor<tensorType> operator[](int i) const{
-        if(numDims == 0) throw "Indexing Error: Index out of bounds in operator[]";
+        if(numDims == 0) throw runtime_error("Indexing Error: Index out of bounds in operator[i]");
         SFTensor<tensorType> newTensor = SFTensor<tensorType>(*this);
         newTensor.shape.erase(newTensor.shape.begin());
         newTensor.stride.erase(newTensor.stride.begin());
@@ -54,25 +50,60 @@ class SFTensor{
         return newTensor;
     }
 
-    // SFTensor operator[](std::vector<int> idx) const{
-    //     if(idx.size() > numDims) throw "Index out of Bounds";
+    SFTensor<tensorType> operator[](pair<int,int> slice){
+        int i = slice.first, j = slice.second;
+        if(numDims == 0) throw runtime_error("Indexing Error: Index out of bounds in operator[i,j]");
+        if(j <= i) throw runtime_error("Indexing Error: End Index <= Start Index");
+        SFTensor<tensorType> newTensor{*this};
+        newTensor.shape[0] = j-i;
+        newTensor.offset[0] += i;
+        int perOuterDimElems = this->numElems / this->shape[0];
+        newTensor.numElems = perOuterDimElems * newTensor.shape[0]; 
+        return newTensor;
+    }
+    
+    SFTensor<tensorType> operator[](vector<pair<int,int>> slices){
+        int totalSliceDims = slices.size();
+        if(numDims < totalSliceDims) throw runtime_error("Indexing Error: Index out of bounds in operator[i1:j1, i2:j2, ...]");
+        SFTensor<tensorType> newTensor{*this};
+        for(int dim{0}; dim < totalSliceDims; dim++){
+            int i = slices[dim].first, j = slices[dim].second;
+            if(j <= i) throw runtime_error("Indexing Error: End Index <= Start Index");
+            newTensor.shape[dim] = j-i;
+            newTensor.offset[dim] += i;
+        }
+        newTensor.numElems = 1;
+        for(int num: newTensor.shape) newTensor.numElems *= num;
+        return newTensor;
+    }
 
-    //     int leftDims = numDims - (int)(idx.size());
-    //     std::vector<int> newShape;
-    //     for(int i{0}; i < leftDims; i++){
-    //         newShape.push_back(shape[i]);
-    //         // std::cout << "newshape: " << i << ": " << newShape[i] << '\n';
-    //     }
-    //     int startElemPos = 0;
-    //     for(int i{numDims-1}; i >= leftDims; i--){
-    //         startElemPos += stride[i] * idx[numDims-1-i];
-    //     }
-    //     // cout << "startelempos for the view: " << startElemPos << '\n';
-    //     // cout << "startelemval for the view: " << data[startElemPos] << '\n';
-    //     SFTensor view(newShape, false);
-    //     view.data = &data[startElemPos];
-    //     return view;
-    // }
+    SFTensor<tensorType>& operator=(tensorType input){
+        if(this->numDims != 0) throw runtime_error("Broadcasting not yet supported");
+        *data = input;
+        return *this;
+    }
+
+    SFTensor<tensorType>& operator=(vector<tensorType> const& input){
+        if(this->numDims != 1) throw runtime_error("Broadcasting not yet supported");
+        int inputSz = input.size();
+        if(this->shape[0] != inputSz) throw runtime_error("Mismatch in tensor and vector shape");
+        for(int i{0}; i < inputSz; i++){
+            *this[i] = input[i];
+        }
+        return *this;
+    }
+
+    SFTensor<tensorType>& operator=(vector<vector<tensorType>> const& input){
+        if(this->numDims != 2) throw runtime_error("Broadcasting not yet supported");
+        int inputSz0 = input.size(), inputSz1 = input[0].size();
+        if((this->shape[0] != inputSz0) || (this->shape[1] != inputSz1)) throw runtime_error("Mismatch in tensor and vector shape");
+        for(int i{0}; i < inputSz0; i++){
+            for(int j{0}; j < inputSz1; j++){
+                (*this)[i][j] = input[i][j];
+            }
+        }
+        return *this;
+    }
 
     void rawPrint(){
         for(int i{0}; i < numElems; i++) std::cout << data[i] << ' ';
@@ -93,7 +124,6 @@ class SFTensor{
 
     template<class t>
     friend std::ostream& operator<<(std::ostream&, const SFTensor<t>&);
-
     
 };
 
